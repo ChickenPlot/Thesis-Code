@@ -1,0 +1,9 @@
+supplementary 1: eGWAS all accessions
+supplementary 2: eGWAS spanish accessions
+supplementary 3: NCBI long-reads codes
+supplementary 4: DE areb3 
+supplementary 5: areb3 enriched terms 
+supplementary 6: DE double mutant
+supplementary 7: double mutant enriched terms
+supplementary 8: DE fd
+Supplementary 9: DE fdp 

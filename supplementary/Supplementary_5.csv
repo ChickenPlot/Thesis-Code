@@ -1,0 +1,52 @@
+"","term_name","term_id","source","p_value","significant","intersection_size"
+"1","shoot system development","GO:0048367","GO:BP",2.53390943125877e-06,TRUE,45
+"2","flower development","GO:0009908","GO:BP",1.01718533965439e-05,TRUE,29
+"3","reproductive shoot system development","GO:0090567","GO:BP",2.05070665188324e-05,TRUE,29
+"4","meristem determinacy","GO:0010022","GO:BP",0.000918746875649433,TRUE,6
+"5","DNA-templated transcription","GO:0006351","GO:BP",0.00195307549885027,TRUE,42
+"6","response to cold","GO:0009409","GO:BP",0.00205068019591405,TRUE,24
+"7","regulation of DNA-templated transcription","GO:0006355","GO:BP",0.00271379062942956,TRUE,40
+"8","regulation of RNA biosynthetic process","GO:2001141","GO:BP",0.00295097828467838,TRUE,40
+"9","photosynthetic electron transport in photosystem I","GO:0009773","GO:BP",0.00489816418250914,TRUE,5
+"10","S-glycoside catabolic process","GO:0016145","GO:BP",0.0072163388631422,TRUE,5
+"11","glucosinolate catabolic process","GO:0019762","GO:BP",0.0072163388631422,TRUE,5
+"12","floral meristem determinacy","GO:0010582","GO:BP",0.0103095682102175,TRUE,5
+"13","regulation of RNA metabolic process","GO:0051252","GO:BP",0.0105362475821538,TRUE,40
+"14","photosynthesis","GO:0015979","GO:BP",0.0108003736306056,TRUE,14
+"15","regulation of nucleobase-containing compound metabolic process","GO:0019219","GO:BP",0.0190705900543723,TRUE,41
+"16","tissue development","GO:0009888","GO:BP",0.0197396496854424,TRUE,31
+"17","meristem development","GO:0048507","GO:BP",0.0225305113170173,TRUE,18
+"18","regulation of primary metabolic process","GO:0080090","GO:BP",0.0367828901113935,TRUE,47
+"19","meristem maintenance","GO:0010073","GO:BP",0.0421884160046186,TRUE,12
+"20","carbohydrate derivative catabolic process","GO:1901136","GO:BP",0.0451396355327321,TRUE,7
+"21","thylakoid","GO:0009579","GO:CC",1.93448481594605e-07,TRUE,35
+"22","apoplast","GO:0048046","GO:CC",2.4234807263755e-07,TRUE,24
+"23","chloroplast thylakoid","GO:0009534","GO:CC",2.59343708414647e-06,TRUE,29
+"24","plastid thylakoid","GO:0031976","GO:CC",3.04542768390306e-06,TRUE,29
+"25","plastid envelope","GO:0009526","GO:CC",6.99115972797469e-06,TRUE,43
+"26","chloroplast thylakoid membrane","GO:0009535","GO:CC",7.10354961114925e-05,TRUE,23
+"27","plastid thylakoid membrane","GO:0055035","GO:CC",9.78154712274975e-05,TRUE,23
+"28","thylakoid membrane","GO:0042651","GO:CC",0.000255486028091201,TRUE,23
+"29","photosynthetic membrane","GO:0034357","GO:CC",0.00026816057084049,TRUE,23
+"30","organelle envelope","GO:0031967","GO:CC",0.000973413549890344,TRUE,43
+"31","chloroplast stroma","GO:0009570","GO:CC",0.00157735532496623,TRUE,33
+"32","organelle outer membrane","GO:0031968","GO:CC",0.00180206903459564,TRUE,23
+"33","outer membrane","GO:0019867","GO:CC",0.00180206903459564,TRUE,23
+"34","extracellular region","GO:0005576","GO:CC",0.00187997816778096,TRUE,26
+"35","plastid stroma","GO:0009532","GO:CC",0.0019403770944984,TRUE,33
+"36","plastid membrane","GO:0042170","GO:CC",0.00417897503187611,TRUE,24
+"37","NAD(P)H dehydrogenase complex (plastoquinone)","GO:0010598","GO:CC",0.0100308528483047,TRUE,4
+"38","chloroplast","GO:0009507","GO:CC",0.0136645822634056,TRUE,67
+"39","bounding membrane of organelle","GO:0098588","GO:CC",0.0141665022018206,TRUE,29
+"40","stromule","GO:0010319","GO:CC",0.0164660952592677,TRUE,6
+"41","chloroplast envelope","GO:0009941","GO:CC",0.0190322866227783,TRUE,27
+"42","transcription regulator activity","GO:0140110","GO:MF",2.28462705376059e-06,TRUE,58
+"43","DNA-binding transcription factor activity","GO:0003700","GO:MF",2.29232479358582e-06,TRUE,57
+"44","iron ion transmembrane transporter activity","GO:0005381","GO:MF",0.0195228582295518,TRUE,4
+"45","oxidoreductase activity","GO:0016491","GO:MF",0.0219996761037616,TRUE,25
+"46","Carbon fixation in photosynthetic organisms","KEGG:00710","KEGG",6.59502876038911e-05,TRUE,10
+"47","Cutin, suberine and wax biosynthesis","KEGG:00073","KEGG",0.000615437879206619,TRUE,6
+"48","Biosynthesis of secondary metabolites","KEGG:01110","KEGG",0.000834728285122589,TRUE,46
+"49","Flower development initiation","WP:WP2108","WP",3.82760642057675e-06,TRUE,6
+"50","Flower development","WP:WP618","WP",0.00184027098144615,TRUE,4
+"51","WIKIPATHWAYS","WP:000000","WP",0.0188713701583826,TRUE,23
