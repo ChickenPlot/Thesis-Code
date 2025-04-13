@@ -1,0 +1,250 @@
+---
+title: "longReads"
+format: html
+editor: visual
+---
+
+```{r, setup, include=FALSE}
+
+filespath = 'C:/Users/Simo/Desktop/micro2_annotated/fasta/variantseqs2'
+
+knitr::opts_knit$set(root.dir = filespath)
+
+```
+
+```{r}
+library(tidyverse)
+library(seqinr)
+```
+
+load and inspect blast results
+
+```{r}
+
+
+# R
+bed <- read.table("blastfolder/BLASTResults/PacBio_Extract.bed")
+tab <- read.table("blastfolder/BLASTResults/PacBio_Extract.tab")
+
+str(bed)
+str(tab) #nr of rows is same
+
+bed <- bed %>%
+ mutate(diff = (V2-V3)) %>%
+  group_by(V1) %>%
+  filter(diff == max(diff)) %>%
+  ungroup() %>% #View()
+  select(-c(diff)) %>%
+  select(c(V1, V3, V2)) %>%
+  as.data.frame()
+
+str(bed)
+
+write.table(bed,
+            "blastfolder/BLASTResults/PacBio_Extract_Processed.bed",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+# bedtools thingy
+```
+
+```{r}
+# EXTENDED  
+
+# R
+bed <- read.table("blastextended/BLASTResults/PacBio_Extract_extended.bed")
+tab <- read.table("blastextended/BLASTResults/PacBio_Extract_extended.tab")
+
+str(bed)
+str(tab) #nr of rows is same
+
+bed <- bed %>%
+ mutate(diff = (V2-V3)) %>%
+  group_by(V1) %>%
+  filter(diff == max(diff)) %>%
+  ungroup() %>% #View()
+  select(-c(diff)) %>%
+  select(c(V1, V3, V2)) %>%
+  as.data.frame()
+
+str(bed)
+
+write.table(bed,
+            "blastextended/BLASTResults/PacBio_Extract_extended_Processed.bed",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+ranges$End - ranges$Start
+
+lapply(pacbios, "[") %>% lapply(., length)
+```
+
+```{r}
+
+```
+
+```{r}
+summary(pacbios)
+
+# eel exact position on TAIR10 ref
+start <- 17129753 #17126859
+end <- 17132386 #17134669
+
+
+Allele_17133393_Gt <- 17133393
+Allele_17133973_At <- 17133973
+Allele_17134033_Ca <- 17134033
+Allele_17134094_Gt <- 17134094
+
+allel_1_pos <- Allele_17133393_Gt - start #-1
+allel_2_pos <- Allele_17133973_At - start #-1
+allel_3_pos <- Allele_17134033_Ca - start #-1
+allel_4_pos <- Allele_17134094_Gt - start #-1
+  
+allele_pos <- c(allel_1_pos,allel_2_pos,allel_3_pos,allel_4_pos)
+#allele_pos <- c(Allele_17133393_Gt, Allele_17133973_At, Allele_17134033_Ca, Allele_17134094_Gt)
+#allele_pos <- c(allel_1_pos:allel_4_pos)
+```
+
+```{r}
+
+#assembly$`Col-0|chromosome_2:17126859-17134669`[c(allel_1_pos,allel_2_pos,allel_3_pos,allel_4_pos)]
+
+
+lapply(pacbios,'[') %>% lapply(., '[', allele_pos)# %>% unique 
+```
+
+```{r}
+
+pacbios_ext <- read.fasta("blastextended/BLASTResults/LD_region_PacBios_extended.fasta")
+ranges_ext <- read.table("blastextended/BLASTResults/PacBio_Extract_extended_Processed.bed")
+colnames(ranges_ext) <- c("Accession", "Start", "End")
+
+ranges_ext
+```
+
+```{r}
+pacbios_ext$`IpLor16:20458114-20462915` %>% length
+```
+
+```{r}
+
+# tair10 start and stop
+start <- 17129753 #beginning of eel
+end <- 17134554 #end of ppr
+end-start
+
+Allele_17133393_Gt <- 17133393
+Allele_17133973_At <- 17133973
+Allele_17134033_Ca <- 17134033
+Allele_17134094_Gt <- 17134094
+
+allel_1_pos <- Allele_17133393_Gt - start #-1
+allel_2_pos <- Allele_17133973_At - start #-1
+allel_3_pos <- Allele_17134033_Ca - start #-1
+allel_4_pos <- Allele_17134094_Gt - start #-1
+  
+allele_pos <- c(allel_1_pos,allel_2_pos,allel_3_pos,allel_4_pos)
+
+lapply(pacbios_ext,'[') %>% lapply(., '[', (allele_pos-1))# %>% unique 
+# looks like there are more haplotypes
+
+```
+
+```{r}
+# use the whole linkage block
+linkage_block <- c(17126859,17127267,17127575,17128431,17128670,
+                   17128730,17128896,17129160,17129556,17129613,
+                   17129619,17129742,17129889,17129986,17131203,
+                   17131211,17131305,17131803,17131833,17131914,
+                   17132030,17132068,17132133,17132157,17132260,
+                   17133010,17133393,17133973,17134033,17134094,
+                   17134639,17134669)
+
+ldsnps_pos <- linkage_block-start
+
+```
+
+start over
+
+```{r}
+
+bed <- read.table("blastextended2/BLASTResults/PacBio_Extract_extended2.bed")
+tab <- read.table("blastextended2/BLASTResults/PacBio_Extract_extended2.tab")
+
+str(bed)
+str(tab) #nr of rows is same
+
+bed <- bed %>%
+ mutate(diff = (V2-V3)) %>%
+  group_by(V1) %>%
+  filter(diff == max(diff)) %>%
+  ungroup() %>% #View()
+  select(-c(diff)) %>%
+  select(c(V1, V3, V2)) %>%
+  as.data.frame()
+
+str(bed)
+
+write.table(bed,
+            "blastextended2/BLASTResults/PacBio_Extract_extended_Processed2.bed",
+            sep = "\t",
+            quote = FALSE,
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+```{r}
+pacbios_ext2 <- read.fasta("blastextended2/BLASTResults/LD_region_PacBios_extended2.fasta")
+ranges_ext2 <- read.table("blastextended2/BLASTResults/PacBio_Extract_extended_Processed2.bed")
+colnames(ranges_ext2) <- c("Accession", "Start", "End")
+```
+
+```{r}
+ranges_ext2$End - ranges_ext2$Start
+pacbios_ext2$`IpLor16:20455221-20463030` %>% length
+ldsnps_pos
+```
+
+```{r}
+
+start <- 17126859
+end <- 17134669
+linkage_block <- c(17126859,17127267,17127575,17128431,17128670,
+                   17128730,17128896,17129160,17129556,17129613,
+                   17129619,17129742,17129889,17129986,17131203,
+                   17131211,17131305,17131803,17131833,17131914,
+                   17132030,17132068,17132133,17132157,17132260,
+                   17133010,17133393,17133973,17134033,17134094,
+                   17134639,17134669)
+
+gwaSNP <- c(17133393, 17133973,17134033, 17134094)
+gwaSNP_pos <- gwaSNP - start
+
+ldsnps_pos <- linkage_block-start
+```
+
+```{r}
+lapply(pacbios_ext2,'[') %>% lapply(., '[', (ldsnps_pos)) %>% unique # 13
+lapply(pacbios_ext2,'[') %>% lapply(., '[', (gwaSNP_pos)) #%>% unique # 9
+
+length(pacbios_ext2) #18
+# so there are some haplotypes
+```
+
+```{r}
+
+```

@@ -1,0 +1,3 @@
+java -Xmx8g -jar snpEff.jar testAthalianaTair10 ../../micro2_annotated/fasta/variantseqs2/syri_out/IpEvs020358372-20366186.fasta_LD_syri.syri.vcf > Evs0.ann.vcf
+
+../../micro2_annotated/fasta/variantseqs2/syri_out/IpEvs020358372-20366186.fasta_LD_syri.syri.vcf

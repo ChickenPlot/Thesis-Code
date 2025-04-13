@@ -1,0 +1,58 @@
+smtools faidx GCF_000001735.4_TAIR10.1_genomic.fna NC_003071.7:17126859-17134669 > TAIR_LD_region.fna
+
+conda create -n syri_env -c bioconda syri
+
+#############################
+
+minimap2 -ax asm5 -t 4 --eqx ../ref_genome/Col-PEK1.5-Chr1-5_20220523.fasta ../genome_assembly/Db-1/04quickmerge_out000/ragoo_output_t2t_corr_gapclosing_polish_corr/ragoo.noMC.fasta | samtools sort -O BAM - > ../alignment_ref/Db-1/30syri_out/Col-PEK_Db-1.corr.bam && samtools index ../alignment_ref/Db-1/30syri_out/Col-PEK_Db-1.corr.bam
+
+syri -c ../alignment_ref/Db-1/30syri_out/Col-PEK_Db-1.corr.bam -r ../ref_genome/Col-PEK1.5-Chr1-5_20220523.fasta -q ../genome_assembly/Db-1/04quickmerge_out000/ragoo_output_t2t_corr_gapclosing_polish_corr/ragoo.noMC.fasta -F B --dir ../alignment_ref/Db-1/30syri_out/ --prefix Col-PEK_Db-1.corr. 
+
+
+#################################àà
+
+my commands
+
+#### 1 - build the index of the illumina assembly (TAIR10) - actually the index is build anyway, but like this we can save it 
+minimap2 -d reference_genome.mmi reference_genome.fasta
+
+
+
+#### 2 - align pacbios to the illumina reference
+minimap2 -ax map-hifi ref.fa pacbio-ccs.fq.gz > aln.sam
+
+## asm5 preset used to align long to short reads
+
+minimap2 -ax asm5 -t 4 --eqx ../ref_genome/Col-PEK1.5-Chr1-5_20220523.fasta ../genome_assembly/Db-1/04quickmerge_out000/ragoo_output_t2t_corr_gapclosing_polish_corr/ragoo.noMC.fasta | samtools sort -O BAM - > ../alignment_ref/Db-1/30syri_out/Col-PEK_Db-1.corr.bam && samtools index ../alignment_ref/Db-1/30syri_out/Col-PEK_Db-1.corr.bam
+
+
+mkdir minimap_results
+minimap2 -ax asm5 -t 4 --eqx ../TAIR_LD_region.fna blastextended2/BLASTResults/LD_region_PacBios_extended2.fasta | samtools sort -O BAM - > minimap_results/LD_aligned.bam && samtools index  minimap_results/LD_aligned.bam
+
+
+# 3 - variant calling under steroids
+syri -c minimap_results/LD_aligned.bam -r ../TAIR_LD_region.fna -q blastextended2/BLASTResults/LD_region_PacBios_extended2.fasta -F B --dir syri_out --prefix LD_syri.
+
+
+
+# 4 - plottino bellino
+
+plotsr \
+    --sr Col025204871-25212681.fasta_LD_syri.syri.out \
+    --sr IpHom418888481-18896291.fasta_LD_syri.syri.out \
+    --genomes genomes.txt \
+    -o output_plot2.png
+
+
+plotsr \
+    --sr IpHom418888481-18896291.fasta_LD_syri.syri.out \
+    --genomes genomes.txt \
+    -o output_plot2.png
+
+
+plotsr \
+    --sr IpEvs020358372-20366186.fasta_LD_syri.syri.out \
+    --genomes genomes.txt \
+    -o output_plot3.png
+
+IpEvs020358372-20366186.fasta_LD_syri.syri.out ../../TAIR_LD_region.fna ../blastextended2/BLASTResults/splitted_regions/IpEvs020358372-20366186.fasta -H 8 -W 5

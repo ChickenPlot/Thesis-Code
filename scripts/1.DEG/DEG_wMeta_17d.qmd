@@ -1,0 +1,817 @@
+---
+title: "DEG with Meta 17d"
+author: "SS"
+format: html
+editor: visual
+---
+
+```{r, setup, include=FALSE}
+
+filespath = "C:/Users/Simo/genomics/damianoRNAseq-20042023/meta_output_17d/meta_assembly_genomeref"
+#setwd(filespath)
+knitr::opts_knit$set(root.dir = filespath)
+
+```
+
+```{r,libraries}
+#| include: false
+#|output: false
+library(tidyverse)
+library(ggrepel) #labels
+library(ggbreak)
+library(ggpubr)
+library(ggplot2)
+library(patchwork) # combine ggplot2 plots
+
+library(edgeR) # DE
+library(DescTools) # sql operator %like% for easy peasy qwery
+
+# magic plots
+library(ComplexHeatmap)
+library(viridis)
+
+```
+
+# Load meta and brief exploration
+
+```{r}
+count_files <- grep("_unstranded.txt", list.files(), value = T)
+count_files <- count_files[c(1,8,9,2,3,5,4,6,7)] # get right order
+                                                 # WT | fd3 | fdp
+
+# clean names
+ct_labels <- lapply(count_files,function(x) gsub(substr(x,1,43), "",x) )
+
+
+sapply(ct_labels, function(x) strsplit(x, split = '_mu')) %>%
+  lapply(., '[', 1) -> ct_labels
+sapply(ct_labels, function(x) strsplit(x, split = '_api')) %>%
+  lapply(., '[', 1) -> ct_labels
+
+ct_labels <- ct_labels %>% unlist() #%>% sort()
+ct_labels <- paste0(ct_labels, c('_rp1','_rp2','_rp3'))
+
+  
+
+
+
+```
+
+```{r}
+genotypes <- factor(c("WT", "WT", "WT",
+                      "fd3", "fd3", "fd3",
+                      "fdp", "fdp", "fdp"), 
+           levels = c("WT", "fd3", "fdp"))
+```
+
+```{r}
+y <- readDGE(count_files, group = genotypes, labels = ct_labels)
+y$counts[1:10,] %>%data.frame()
+y$samples
+
+dim(y$counts)
+
+#write.csv(y$counts, "Maida_RAW.csv")
+```
+
+```{r}
+# design
+design <- model.matrix(~0+genotypes, data = y$samples$group)
+colnames(design) <- levels(y$samples$group)
+
+# filter
+genes_before <- dim(y)[1]
+keep <- rowSums(y$counts>=5)>= 2
+#keep <- filterByExpr(y)
+y2 <- y[keep,, keep.lib.sizes=FALSE]
+genes_after <- dim(y2)[1]
+filterdf <- data.frame(Before = genes_before, After = genes_after)
+filterdf # 19913
+
+# norm
+y2 <- calcNormFactors(y2, method = "TMM")
+
+# disp
+y2 <- estimateDisp(y2,design, robust = F) 
+
+
+ # Vizualization of normalization
+
+# palette for plots 
+group_colors <- c(rep("#24d4a3",3),
+                  rep("#e84d8a",3),
+                 # rep("#64c5eb",3),
+                  rep("#7f58af",3))
+
+data.frame(Sample = colnames(y2), 
+           Norm_Factor = 1-y2$samples$norm.factors) %>%
+  ggplot(., aes(x = Sample, y = Norm_Factor)) +
+  geom_bar(stat = "identity", fill = group_colors, alpha = .85) +
+  # Add labels and a title
+  labs(
+    x = "Sample",
+    y = "Scaling",
+    title = "Visual representation of scaling factors"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 30, 
+                                   hjust = .8, 
+                                   vjust = 1))
+
+```
+
+```{r}
+#cpm(y2$counts) %>% data.frame %>% write.csv(., 'FINAL_COUNT_TABLE_MAIDA.csv')
+
+```
+
+```{r}
+# mds
+
+plotMDS(y2, 
+        labels = genotypes, 
+        col = group_colors,
+        main = "MDS - expression profile distance among genotypes")
+
+plotMDS(y2, 
+        labels = colnames(y2), 
+        col = group_colors,
+        main = "MDS - expression profile distance among genotypes")
+```
+
+heatmaps are coherent with the first lines of the article
+
+-   fd has stronger impact than fdp, late flowering, x axis
+
+-   fdp is less poweful, slight early floweint, y axis
+
+NOICE
+
+```{r}
+
+y2$samples$group
+
+my_contrasts <- makeContrasts(wt_fd3 = fd3-WT,
+                              wt_fdp = fdp-WT ,
+                              fd3_fdp = fdp-fd3,
+                              levels = design)
+data.frame(my_contrasts)
+
+
+fit_nointercept <- glmQLFit(y2,design, robust = T)
+
+```
+
+```{r}
+
+# WT vs fd3
+qlf_wtfd3 <- glmQLFTest(fit_nointercept, 
+                         contrast=my_contrasts[,"wt_fd3"])
+
+#
+results_wtfd3_unfiltered <- topTags(qlf_wtfd3,
+        n = Inf, 
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+# summary(decideTests(qlf_wtareb, p.value=0.05))
+
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_wtfd3, p.value=0.05))[1],
+                     summary(decideTests(qlf_wtfd3, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "fd3 vs WT"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_wtfd3
+
+
+
+# WT vs fdp
+qlf_wtfdp <- glmQLFTest(fit_nointercept, 
+                         contrast=my_contrasts[,"wt_fdp"])
+
+results_wtfdp_unfiltered <- topTags(qlf_wtfdp,
+        n = Inf, 
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+# summary(decideTests(qlf_wtareb, p.value=0.05))
+
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_wtfdp, p.value=0.05))[1],
+                     summary(decideTests(qlf_wtfdp, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "fdp vs WT"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_wtfdp
+
+
+
+# fd3 vs fdp
+qlf_fd3fdp <- glmQLFTest(fit_nointercept, 
+                         contrast=my_contrasts[,"fd3_fdp"])
+
+results_fd3fdp_unfiltered <- topTags(qlf_fd3fdp,
+        n = Inf, 
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+# summary(decideTests(qlf_wtareb, p.value=0.05))
+
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_fd3fdp, p.value=0.05))[1],
+                     summary(decideTests(qlf_fd3fdp, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "fd3 vs fdp"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_fd3fdp
+
+
+plot_wtfd3
+plot_wtfdp
+plot_fd3fdp
+
+```
+
+```{r}
+
+extract_genes <- function(topTags_result,FDR_ = 0.05, logfc_ = 1  ) {
+  
+  topTags_result <- data.frame(topTags_result)
+  
+  topTags_result <- topTags_result[which((topTags_result$logFC > logfc_|     
+                                          topTags_result$logFC < -logfc_ ) & 
+                                          topTags_result$FDR < FDR_ & 
+                                          topTags_result$logCPM > 0),]
+  
+  return(topTags_result)
+
+  
+}
+
+results_wtfd3 <- extract_genes(results_wtfd3_unfiltered)
+results_wtfdp <- extract_genes(results_wtfdp_unfiltered)
+results_fd3fdp <- extract_genes(results_fd3fdp_unfiltered)
+
+
+top_wt <- intersect(rownames(results_wtfd3), c(rownames(results_wtfdp)))
+top_fd3 <- intersect(rownames(results_wtfd3), c(rownames(results_fd3fdp)))
+top_fdp <- intersect(rownames(results_wtfdp), c(rownames(results_fd3fdp)))
+
+markers_wt <- t(cpm(y2[which(rownames(y2) %in% top_wt),],log = T)) %>% data.frame(.)
+markers_fd3 <- t(cpm(y2[which(rownames(y2) %in% top_fd3),],log = T)) %>% data.frame(.)
+markers_fdp <- t(cpm(y2[which(rownames(y2) %in% top_fdp),],log = T)) %>% data.frame(.)
+```
+
+```{r}
+
+plot_MD <- function(Toptags_results, FDR_ = .05, logFC_ = 1){
+  Toptags_results <- Toptags_results$table
+  
+  regulation <- ifelse(Toptags_results$FDR < FDR_ & Toptags_results$logFC > logFC_, "UP", 
+                ifelse(Toptags_results$FDR < FDR_ & Toptags_results$logFC < -logFC_, "DOWN", 
+                "none"))
+  
+  labelled_genes <-  subset(Toptags_results, abs(Toptags_results$logFC) > logFC_ & Toptags_results$FDR < FDR_)
+
+  data.frame(Toptags_results) %>%
+  ggplot(., 
+       aes(x = logCPM, 
+           y=logFC,
+           col=regulation,
+           size = ifelse(regulation %in% c("UP", "DOWN"), 1, .1))) + 
+  geom_point() + 
+  scale_colour_manual(values=c(alpha("blue",.7), 
+                               alpha("black", .3), 
+                               alpha("red",.7)))+
+    #scale_size_continuous("FDR") +
+     #   scale_size_continuous("logFC")+
+
+  geom_text_repel(data = labelled_genes,
+            aes(label = rownames(labelled_genes)),
+            col = "black", 
+            size = 3.5, 
+            nudge_x = 0, 
+            nudge_y = ifelse(regulation == "UP", 2, 
+                             ifelse(regulation == "DOWN", -2, 0)), 
+            #max.overlaps = Inf,
+            force = 1) +
+    theme_minimal()+
+    
+  guides(size = "none")
+  
+  
+}
+```
+
+```{r}
+
+plot_MD(results_wtfd3_unfiltered, logFC_ = 1) + 
+  labs(title = "Mean-difference plot", subtitle = "fd3 vs WT")
+
+plot_MD(results_wtfdp_unfiltered, logFC_ = 1) + 
+  labs(title = "Mean-difference plot", subtitle = "fdp vs WT")
+
+plot_MD(results_fd3fdp_unfiltered, logFC_ = 1) + 
+  labs(title = "Mean-difference plot", subtitle = "fd3 vs fdp")
+```
+
+```{r}
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_wtfd3)),c(1:6)],
+      log = T)) %>% t()  %>%
+Heatmap(.)
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_wtfdp)),c(1:3, 7:9)],
+      log = T)) %>% t() %>%
+Heatmap(.)
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_fd3fdp)),c(4:9)],
+      log = T)) %>% t() %>%
+Heatmap(.)
+
+```
+
+```{r}
+
+Heatmap(t(markers_wt))
+Heatmap(t(markers_fd3))
+Heatmap(t(markers_fdp))
+```
+
+```{r}
+filespath2 = "C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref"
+setwd(filespath2)
+read.csv("FINAL_COUNT_TABLE.csv", header = T) %>% data.frame -> y_dam
+#read.csv("FINAL_COUNT_TABLE.csv", header = T) %>% data.frame -> y2
+
+rownames(y_dam) <- y_dam[,1]
+y_dam <- y_dam[,-1]
+y_dam <- t(y_dam) %>% data.frame(.)
+
+
+
+bg_damiano <- colnames(y_dam)
+bg_maida <- rownames(y2$counts)
+
+
+#lapply(y2, function(x) if(is.character(x)) as.numeric(x) else x) -> y2[]
+
+#print(class(y2$A1[1]))
+```
+
+```{r}
+
+library(gprofiler2)
+
+#gost(rownames(results_wtfd3), organism = 'athaliana') -> enrich_wtfd3
+
+gost(list('fd3_vs_WT' = rownames(results_wtfd3),
+          'fdp_vs_WT' = rownames(results_wtfdp),
+          'fd3_vs_fdp' = rownames(results_fd3fdp)),
+     organism = 'athaliana',
+     multi_query = F, 
+     evcodes = T,
+     highlight = T,
+     exclude_iea = T,
+     custom_bg = bg_damiano) -> meta_contrasts
+
+
+
+
+
+
+
+```
+
+```{r}
+
+dim(meta_contrasts$result)
+
+```
+
+```{r}
+meta_contrasts$result
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref")
+
+write_csv(meta_contrasts$result, "M_DE_enriched.csv")
+```
+
+```{r}
+
+#library(gprofiler2)
+plot_from_gost <- function(gost_result, 
+                           annDB = c("GO:BP","GO:CC","GO:MF","KEGG","WP"),
+                           #curated_only = F,
+                           highlighted_only = F,
+                           top_res = 10) {
+  
+  gost_result <- gost_result$result[gost_result$result$significant == T,]
+  gost_result <- gost_result[gost_result$source %in% annDB,]
+  
+  if (highlighted_only == T) {
+    gost_result <- gost_result[gost_result$highlighted == TRUE,]
+  }
+  
+  gost_result <- gost_result %>% 
+    group_by(query) %>%
+    arrange(desc(intersection_size)) %>% 
+    slice_head(n = top_res) %>% 
+    ungroup()
+
+gost_result$term_name <- factor(gost_result$term_name,
+                                levels = unique(gost_result$term_name))
+
+ggplot(gost_result, aes(x = intersection_size, 
+                           y = term_name, 
+                           fill = -log10(p_value) ))+
+  scale_fill_viridis(option = 'plasma', 
+                     direction = -1,
+                     #limits = c(0,50)
+                     )+
+  geom_bar(stat = 'identity') + 
+  theme_minimal()+
+  ggplot2::facet_grid(~query)+ labs(title = annDB)
+}
+
+
+
+```
+
+```{r}
+meta_contrasts$result$query %>% unique()
+
+meta_contrasts$result$source %>% unique()
+```
+
+```{r}
+
+# maidabg
+
+plot_from_gost(meta_contrasts, annDB = 'GO:BP', highlighted_only = T)
+plot_from_gost(meta_contrasts, annDB = 'GO:BP', highlighted_only = F)
+plot_from_gost(meta_contrasts, annDB = 'GO:MF', highlighted_only = T)
+plot_from_gost(meta_contrasts, annDB = 'GO:MF', highlighted_only = F)
+
+
+#plot_from_gost(meta_contrasts, annDB = 'KEGG',
+#               highlighted_only = T) #no kegg hihlighted
+
+
+plot_from_gost(meta_contrasts, annDB = 'KEGG', highlighted_only = F)
+
+#plot_from_gost(meta_contrasts, annDB = 'WP', 
+ #              highlighted_only = T) #no wikipath hihlighted
+
+
+plot_from_gost(meta_contrasts, annDB = 'WP', highlighted_only = F)
+
+#plot_from_gost(meta_contrasts, annDB = 'GO:CC', highlighted_only = T)
+#plot_from_gost(meta_contrasts, annDB = 'GO:CC', highlighted_only = F)
+```
+
+```{r}
+# daminaobg
+
+
+
+plot_from_gost(meta_contrasts_2, annDB = 'GO:BP', highlighted_only = T)
+plot_from_gost(meta_contrasts_2, annDB = 'GO:BP', highlighted_only = F)
+plot_from_gost(meta_contrasts_2, annDB = 'GO:MF', highlighted_only = T)
+plot_from_gost(meta_contrasts_2, annDB = 'GO:MF', highlighted_only = F)
+
+
+
+plot_from_gost(meta_contrasts_2, annDB = 'KEGG', highlighted_only = F)
+
+plot_from_gost(meta_contrasts_2, annDB = 'WP', highlighted_only = F)
+
+```
+
+# Subset groups of DEGs
+
+```{r}
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref")
+
+
+data.frame(fd3_vs_WT = rownames(results_wtfd3)) %>% 
+  write_csv(., 'DE_FD3vsWT.csv')
+
+
+data.frame(fdp_vs_WT = rownames(results_wtfdp))%>% 
+  write_csv(., 'DE_FDpvsWT.csv')
+
+
+
+
+data.frame(fd3_vs_fdp = rownames(results_fd3fdp))%>% 
+  write_csv(., 'DE_FDPvsFD3.csv')
+
+
+
+filespath = "C:/Users/Simo/genomics/damianoRNAseq-20042023/meta_output_17d/meta_assembly_genomeref"
+#setwd(filespath)
+knitr::opts_knit$set(root.dir = filespath)
+
+```
+
+```{r}
+# try to do the same by annotations
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref")
+
+
+meta_contrasts$result[meta_contrasts$result$query=='fd3_vs_WT',
+                      c(1:3,9,11,16)] %>% write_csv(., 'enrichDE_FD3vsWT.csv')
+
+meta_contrasts$result[meta_contrasts$result$query=='fdp_vs_WT',
+                      c(1:3,9,11,16)] %>% write_csv(., 'enrichDE_FDPvsWT.csv')
+
+meta_contrasts$result[meta_contrasts$result$query=='fd3_vs_fdp',
+                      c(1:3,9,11,16)] %>% write_csv(., 'enrichDE_FD3vsFDP.csv')
+
+
+
+filespath = "C:/Users/Simo/genomics/damianoRNAseq-20042023/meta_output_17d/meta_assembly_genomeref"
+#setwd(filespath)
+knitr::opts_knit$set(root.dir = filespath)
+```
+
+# Subset of genes from annotations
+
+to scrap networks
+
+```{r}
+
+# subsetting for flowering-enriched genes
+meta_contrasts$result[grep('flo[wr]', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection')) -> flower_intersect
+
+
+apply(flower_intersect,1,'[') %>% strsplit(.,split = ',') %>%
+  unname() %>%
+  unlist(recursive = F) %>% unique() -> floral_related_genes
+
+
+
+# meristem
+meta_contrasts$result[grep('meris', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection')) -> meristem_intersect
+
+apply(meristem_intersect,1,'[') %>% strsplit(.,split = ',') %>%
+  unname() %>%
+  unlist(recursive = F) %>% unique() -> meristem_related_genes
+
+
+
+
+### response to hormon
+meta_contrasts$result[grep('horm', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection')) %>% 
+  rbind(meta_contrasts$result[grep('aux', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection'))) -> respHorm_intersect
+
+
+apply(respHorm_intersect,1,'[') %>% strsplit(.,split = ',') %>%
+  unname() %>%
+  unlist(recursive = F) %>% unique() -> hormone_related_genes
+
+
+
+###
+meta_contrasts$result[grep('regul', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection')) -> regulation_intersect
+regulation_intersect <- regulation_intersect[c(2,3,8,11,18:23,34,40),] %>%
+  data.frame
+
+apply(regulation_intersect,1,'[') %>% strsplit(.,split = ',') %>%
+  unname() %>%
+  unlist(recursive = F) %>% unique() -> regulation_related_genes
+
+
+
+####
+meta_contrasts$result[grep('factor', meta_contrasts$result$term_name),] %>%
+  select(.,c(#'term_name',
+             'intersection')) -> tf_intersect
+
+apply(tf_intersect,1,'[') %>% strsplit(.,split = ',') %>%
+  unname() %>%
+  unlist(recursive = F) %>% unique() -> tf_related_genes
+
+
+
+
+
+
+```
+
+```{r, setup, include = FALSE}
+# save pulled genes 
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref")
+
+write.csv(floral_related_genes, 'floral_genes.csv')
+write.csv(meristem_related_genes, 'meristem_genes.csv')
+write.csv(hormone_related_genes, 'hormone_genes.csv')
+write.csv(regulation_related_genes, 'regulation_genes.csv')
+write.csv(tf_related_genes, 'transcription_factor_genes.csv')
+
+```
+
+\############################
+
+```{r}
+
+# reset to meta wd
+filespath = "C:/Users/Simo/genomics/damianoRNAseq-20042023/meta_output_17d/meta_assembly_genomeref"
+#setwd(filespath)
+knitr::opts_knit$set(root.dir = filespath)
+
+
+library(readxl)
+
+ref_deg_wtfd3 <- read_xlsx('mmc3.xlsx', sheet = 3)
+colnames(ref_deg_wtfd3) <- ref_deg_wtfd3[1,]
+ref_deg_wtfd3 <- ref_deg_wtfd3[-1,]
+#rownames(ref_deg_wtfd3) <- ref_deg_wtfd3[,1]
+
+
+ref_deg_wtfdp <- read_xlsx('mmc3.xlsx', sheet = 4)
+colnames(ref_deg_wtfdp) <- ref_deg_wtfdp[1,]
+ref_deg_wtfdp <- ref_deg_wtfdp[-1,]
+
+#rownames(ref_deg_wtfdp) <- ref_deg_wtfdp[,1]
+
+```
+
+```{r}
+
+table(unlist(ref_deg_wtfd3[,1]) %in% rownames(results_wtfd3))
+
+
+table(unlist(ref_deg_wtfdp[,1]) %in% rownames(results_wtfdp))
+```
+
+```{r}
+
+results_wtfd3
+results_wtfdp
+```
+
+```{r}
+
+ref_deg_wtfdp_17 <- read_xlsx('mmc3.xlsx', sheet = 2)
+colnames(ref_deg_wtfdp_17) <- ref_deg_wtfdp_17[1,]
+ref_deg_wtfdp_17 <- ref_deg_wtfdp_17[-1,]
+
+
+ref_deg_wtfd3_17 <- read_xlsx('mmc3.xlsx', sheet = 1)
+colnames(ref_deg_wtfd3_17) <- ref_deg_wtfd3_17[1,]
+ref_deg_wtfd3_17 <- ref_deg_wtfd3_17[-1,]
+```
+
+```{r}
+
+table(unlist(ref_deg_wtfd3_17[,1]) %in% rownames(results_wtfd3) )
+
+
+table(unlist(ref_deg_wtfdp_17[,1]) %in% rownames(results_wtfdp) )
+
+```
+
+data per prof
+
+```{r}
+
+results_wtfd3[results_wtfd3$logFC >0,] %>% rownames() -> up_fd
+results_wtfdp[results_wtfdp$logFC >0,] %>% rownames() -> up_fdp
+
+
+rbind(results_wtfd3[which(results_wtfd3$logFC < 0),], 
+      results_wtfdp[which(results_wtfdp$logFC < 0),]) %>% rownames() %>% unique -> up_wt
+
+library(ggvenn)
+
+ggvenn(data = list(DE_fd = up_fd,
+                   DE_fdp = up_fdp
+          ), 
+      #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+      stroke_size = 0.5, set_name_size = 4, show_percentage = F
+      ) + ggtitle('Common DEGs between mutants (Maida)')
+```
+
+```{r}
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref")
+
+write_csv(data.frame(Gene = up_fd), "maida_up_fd.csv")
+write_csv(data.frame(Gene = up_fdp), "maida_up_fdp.csv")
+write_csv(data.frame(Gene = up_wt), "maida_up_wt.csv")
+```
+
+```{r}
+
+```
+
+compensatory effect
+
+```{r}
+
+a_bZips <- list("AT2G17770","AT4G35900","AT1G03970",
+            "AT5G44080","AT2G41070","AT3G56850",
+            "AT2G36270","AT3G44460","AT5G42910",
+            "AT1G45249","AT4G34000","AT1G49720","AT3G19290")
+
+which(a_bZips %in% rownames(y2)) # who's missing ?
+
+
+cpm(y2$counts[which(rownames(y2) %in% a_bZips), ]) %>% data.frame() -> a_bZips_expression
+
+
+# group A bzips in DEGs
+results_wtfd3[which(rownames(results_wtfd3) %in% 
+                       rownames(a_bZips_expression)),]
+
+results_wtfdp[which(rownames(results_wtfdp) %in% 
+                       rownames(a_bZips_expression)),]
+
+results_fd3fdp[which(rownames(results_fd3fdp) %in% 
+                       rownames(a_bZips_expression)),]
+
+```
+
+```{r}
+# visual
+
+stack(a_bZips_expression) %>% 
+  data.frame(Gene = rep(rownames(a_bZips_expression), length(a_bZips_expression[1,])),
+             Genotype = sort(rep(genotypes, 11),decreasing = F)) %>%
+  rename(CPM = values, Sample = ind) -> stacked_abzip_express
+
+
+
+ggplot(stacked_abzip_express, aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  #scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+df <- data.frame(
+  x = LETTERS[1:16],
+  group = rep(c("Group 1", "Group 2", "Group 3"), c(5, 3, 8)),
+  value = rpois(16, 10)
+)
+
+ggplot(df, aes(paste0(x, "&", group), value)) +
+  geom_col() +
+  guides(x = ggh4x::guide_axis_nested(delim = "&"))
+
+```
+
+```{r}
+
+cpm(y2$counts[,1:3]) %>% write.csv(., 'cpm_Col0_17d.csv')
+```

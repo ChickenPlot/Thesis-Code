@@ -1,0 +1,52 @@
+#mkdir blastfolder/PacBioChr2DB
+
+
+# 
+makeblastdb -in blastfolder/Merged_Full_Chr2 -dbtype nucl -parse_seqids -title chr2_PacBios
+
+# actual blast
+blastn -db ./X/Chr2DB -query ./Y/LD_region_Col0.fasta -out ./Y/LD_region_PacBios_2extract.bed -outfmt "6 sseqid send sstart"
+
+
+mkdir BLASTResults
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../EEL_TAIR10.fasta -out blastfolder/BLASTResults/PacBio_Extract.bed -outfmt  "6 sseqid send sstart"
+
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../EEL_TAIR10.fasta -out blastfolder/BLASTResults/PacBio_Extract.tab -outfmt "6 sseqid send sstart length pident mismatch gapopen evalue bitscore"
+
+
+#bedtools getfasta -fi ./X/Chr2_PacBios.fasta -bed ./Y/LD_region_PacBios_2extract2.bed -fo ./Y/LD_region_PacBios.fasta
+
+bedtools getfasta -fi blastfolder/Merged_Full_Chr2.fna -bed blastfolder/BLASTResults/PacBio_Extract_Processed.bed -fo blastfolder/BLASTResults/LD_region_PacBios.fasta
+
+
+Merged_Full_Chr2.fna
+
+###############################################################################################
+
+TAIR_Region_Ch2 -> reference 
+
+
+mkdir BLASTResults
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../TAIR_Region_Ch2.fasta -out blastextended/BLASTResults/PacBio_Extract_extended.bed -outfmt  "6 sseqid send sstart"
+
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../TAIR_Region_Ch2.fasta -out blastextended/BLASTResults/PacBio_Extract_extended.tab -outfmt "6 sseqid send sstart length pident mismatch gapopen evalue bitscore"
+
+##### R script ######à
+
+bedtools getfasta -fi blastfolder/Merged_Full_Chr2.fna -bed blastextended/BLASTResults/PacBio_Extract_extended_Processed.bed -fo blastextended/BLASTResults/LD_region_PacBios_extended.fasta
+
+###############################################################à
+
+TAIR_LD_region.fna -> reference 
+
+
+mkdir BLASTResults
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../TAIR_LD_region.fna -out blastextended2/BLASTResults/PacBio_Extract_extended2.bed -outfmt  "6 sseqid send sstart"
+
+blastn -db blastfolder/Merged_Full_Chr2.fna -query ../TAIR_LD_region.fna -out blastextended2/BLASTResults/PacBio_Extract_extended2.tab -outfmt "6 sseqid send sstart length pident mismatch gapopen evalue bitscore"
+
+##### R script ######à
+
+bedtools getfasta -fi blastfolder/Merged_Full_Chr2.fna -bed blastextended2/BLASTResults/PacBio_Extract_extended_Processed2.bed -fo blastextended2/BLASTResults/LD_region_PacBios_extended2.fasta
+
+

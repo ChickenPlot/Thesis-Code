@@ -1,0 +1,1548 @@
+---
+title: "DEG_4, p=0.1"
+format: html
+editor: visual
+---
+
+# SETUP
+
+```{r, setup, include=FALSE}
+
+filespath = "C:/Users/Simo/genomics/damianoRNAseq-20042023/output/assembly_genomeref" # set your own path
+#setwd(filespath)
+knitr::opts_knit$set(root.dir = filespath)
+
+```
+
+## Libraries
+
+```{r,libraries}
+#| include: false
+#|output: false
+library(tidyverse)
+library(dplyr)
+library(ggrepel) #labels
+library(ggbreak)
+library(ggpubr)
+
+library(edgeR) # DE
+library(DescTools) # sql operator %like% for easy peasy qwery
+library(GeneOverlap)
+
+# magic plots
+library(viridis)
+library(ComplexHeatmap)
+library(circlize)
+
+library(patchwork)
+
+library(gprofiler2)
+
+
+
+getwd()
+```
+
+## Data load and preparation
+
+```{r, pre-preprocessing}
+
+group <- factor(c("WT", "WT",
+                  "eel", "eel", "eel",
+                  "areb3_1", "areb3_1", "areb3_1",
+                  "eel.areb3_1", "eel.areb3_1", "eel.areb3_1"), 
+           levels = c("WT", "eel", "areb3_1", "eel.areb3_1"))
+#group <- relevel(group, ref = "WT")
+
+
+labels <- c("A3","A4",
+            "B1","B2","B3",
+            "C1","C2","C4",
+            "D1","D2","D3")
+
+lane <- factor(c(4,4,
+                 1,1,1,
+                 4,4,1,
+                 1,1,1))
+
+count_files <- grep("_unstranded.txt", list.files(), value = T)
+
+count_files <-  count_files[-1]
+
+y <- readDGE(count_files, group = group)
+y$samples$lane <- lane
+y$samples$group <- relevel(y$samples$group, ref = "WT")
+
+
+```
+
+```{r}
+clean_sample_names <- function(count_table, split_arg) { # takes a named vector and renames it
+  lapply(colnames(count_table) %>%    
+           strsplit(colnames(count_table), split = split_arg),
+                        FUN = '[', 1)
+}
+
+colnames(y) <- clean_sample_names(y, '_EK')
+#colnames(y)
+
+# palette for plots 
+group_colors <- c(rep("#24d4a3",2),
+                  rep("#e84d8a",3),
+                  rep("#64c5eb",3),
+                  rep("#7f58af",3))
+
+```
+
+### Retrive gene names for conversion
+
+```{r}
+
+#gene_ids_unfiltered <- rownames(y)
+#gene_ids
+#write.table(gene_ids_unfiltered, "genes_ids_unfiltered.txt", row.names = F, col.names = F)
+#write.csv(y$counts, "Damiano_RAW.csv")
+
+```
+
+## Add some layes of metadata
+
+### sequencing quality data
+
+```{r}
+
+# read metadata file
+meta_DE <- read_csv("metadata/DE_metadata.csv", show_col_types = F )
+#colnames(meta_DE)
+meta_DE <- meta_DE[-1,]
+
+# add metadata to the DGE object
+# actually looks kinda useless BUT it may work for smth
+y$samples$n_input_reads <- unlist(meta_DE[,2])
+y$samples$avg_read_len <- unlist(meta_DE[,3]) # ma è la stessa per tutti
+y$samples$uniquely_mapped_reads_n <- unlist(meta_DE[,4]) 
+y$samples$uniquely_mapped_reads_pcent <- unlist(meta_DE[,5])
+
+y$samples$n_splices_total <- unlist(meta_DE[,6])
+y$samples$n_splices_ann_sjdb <- unlist(meta_DE[,7])
+y$samples$n_splices_noncanon <- unlist(meta_DE[,8])
+
+y$samples$n_reads_mapped_multi_loci <- unlist(meta_DE[,9])
+y$samples$pcent_reads_mapped_multi_loci <- unlist(meta_DE[,10])
+
+y$samples$n_reads_mapped_toomany_loci <- unlist(meta_DE[,11])
+y$samples$pcent_reads_mapped_toomany_loci <- unlist(meta_DE[,12])
+
+y$samples$n_reads_unmapped_toomany_mm <- unlist(meta_DE[,13])
+y$samples$pcent_reads_unmapped_toomany_mm <- unlist(meta_DE[,14])
+
+y$samples$n_reads_unmapped_too_short <- unlist(meta_DE[,15])
+y$samples$pcent_reads_unmapped_too_short <- unlist(meta_DE[,16])
+
+y$samples$n_reads_unmapped_other <- unlist(meta_DE[,17])
+y$samples$pcent_reads_unmapped_other <- unlist(meta_DE[,18])
+
+
+```
+
+### Genes metadata
+
+```{r}
+#| include: false
+#|output: false
+
+# metadata/ varie liste di conversion
+
+entrez_convers_file1 <- read_table("metadata/TAIR_to_NCBI.txt", 
+                                   col_names = F)
+
+entrez_convers_file2 <- read_table("metadata/entrez_conv.txt", 
+                                   col_names = T)
+
+entrez_convers_file2  <- entrez_convers_file2[,c(1,2,5)]
+
+
+
+entrez_convers_file3 <- read_table("metadata/officialGeneName_conv.txt",
+                                   col_names = T)
+
+entrez_convers_file3[, 1:2] -> entrez_convers_file3
+
+
+
+TAIR_IDs <- data.frame(rownames(y))  
+colnames(TAIR_IDs) <- "TAIR_ID"
+
+
+
+
+left_join(data.frame(TAIR_ID = TAIR_IDs), entrez_convers_file1, by = join_by(TAIR_ID == X2)) %>%
+  rename(.,c(Entrez_ID = X1))-> genes_meta_1
+
+
+left_join(data.frame(TAIR_ID = TAIR_IDs), entrez_convers_file2, by = join_by(TAIR_ID == From))%>% 
+  rename(.,c(Entrez_ID = To, CommonName = Name)) -> genes_meta_2
+
+left_join(data.frame(TAIR_ID = TAIR_IDs), entrez_convers_file3, by = join_by(TAIR_ID == From))%>% 
+  rename(.,c(Name = To)) -> genes_meta_3
+
+
+
+genes_meta <- left_join(genes_meta_1, genes_meta_3) %>%
+              left_join(., genes_meta_2)
+
+
+
+
+#table(is.na(genes_meta_before[2]))# 5491 NAs # we have some na to inspect after filtering
+
+y$genes <- genes_meta
+
+# i need TAIR | Entrez | OtherName | common
+# write.csv(genes_meta, "metadata/Converted_gene_Names.csv")
+
+```
+
+## 
+
+# Design matrix
+
+```{r, design_matrix}
+
+design <- model.matrix(~0+group, data = y$samples$group)
+colnames(design) <- levels(y$samples$group)
+
+```
+
+# Filtering
+
+\*From EdgeR manual:
+
+*The function keeps rows that have worthwhile counts in a minimum number of samples. It accesses the group factor contained in y in order to compute the minimum group size, but the filtering is performed independently of which sample belongs to which group so that no bias is introduced. It is recommended to recalculate the library sizes of the DGEList object after the filtering, although the downstream analysis is robust to whether this is done or not*
+
+filtering function has actually 2 filters, one based on raw counts and one on cpm. To be filtered, a feature has to pass both filters \[*source: i read the source code*\]
+
+```{r}
+
+dim(y) # 33609
+```
+
+```{r}
+
+table(filterByExpr(y, design))
+table(rowSums(y$counts>=5)>= 2) 
+
+keep <- rowSums(y$counts>=5)>= 2
+
+y2 <- y[keep,, keep.lib.sizes=F]
+dim(y2) # 21238
+```
+
+### Genes lost after filtering
+
+```{r}
+
+dim_after_filter <- dim(y2)
+dim_before_filter <- dim(y)
+
+dim_after_filter
+dim_before_filter
+
+dim_before_filter[1]-dim_after_filter[1] # we loose  genes with filtering
+
+
+```
+
+### 
+
+### Table of genes after filtering -\> conversion
+
+```{r}
+
+#gene_ids_filtered <- rownames(y)
+#gene_ids
+#write.table(gene_ids_filtered, 
+ #           "genes_ids_filtered.txt", 
+  #          row.names = F, 
+   #         col.names = F)
+```
+
+### genes meta after filter
+
+```{r}
+
+# metadata/ varie liste di conversion
+
+#entrez_convers_file <- read_table("metadata/TAIR_to_NCBI.txt", col_names = F)
+
+
+#TAIR_IDs <- data.frame(rownames(y2)) %>% rename(.,c(TAIR_ID = rownames.y2.))
+
+
+#data.frame(TAIR_ID = entrez_convers_file[2], Entrez_ID = entrez_convers_file[1]) %>% rename(c(TAIR_ID = X2, Entrez_ID = X1)) %>%
+ # left_join(data.frame(TAIR_ID = TAIR_IDs), .) -> genes_meta_after
+
+#table(is.na(genes_meta_after[2]))# 5491 NAs # we have some na to inspect after filtering
+
+## add common names
+
+#common_names_file <- read.csv("metadata/")
+```
+
+## Recalc of lib size
+
+Recomputing the library size after filtering is not a standard practice in edgeR *or RNA-Seq analysis in general.*
+
+Once the library sizes are initially computed and normalized, they are typically considered fixed for the analysis. Recomputing library sizes could *potentially introduce bias or complications in downstream analyses*.
+
+# Normalization
+
+### `calcNormFactors` normalizes the library sizes.
+
+### `cpm` divides counts by library sizes.
+
+*LogCPM is calculated dividing the number of reads of a gene for the total of the reads in the sample, then multiply for a million and then apply a log2 transformation. This normalize the data about expression based on the dimension of the sample, allowing for a more accurate comparison between samples of different sizes.*
+
+[\[bioc forum\]](https://support.bioconductor.org/p/9145189/#9145192) Running `cpm` after `calcNormFactors` uses normalized library sizes. Running `cpm` before `calcNormFactors` uses unnormalized library sizes.
+
+Obviously the **former is better than the latter**. Why would you normalize the library sizes but then ignore the normalization? That would just make no sense at all.
+
+```{r}
+
+logcpm_before <- cpm(y2, log=TRUE) #log before norm
+logmed_b <- apply(logcpm_before,2, FUN = median)
+
+y2 <- calcNormFactors(y2, method = "TMM") ###### Normalization ###########
+
+
+logcpm_after <- cpm(y2, log=TRUE) #  after norm
+logmed_a <- apply(logcpm_after,2, FUN = median)
+
+logmed_mat <- matrix(c(logmed_b, logmed_a), nrow = 2, byrow = T)
+colnames(logmed_mat) <- group
+rownames(logmed_mat) <- c('Before', 'After')
+t(logmed_mat)
+
+par(mfrow = c(1,2))
+boxplot(logcpm_before, 
+        ylab = 'log(CPM)', 
+        xlab = 'samples', 
+        col = group_colors, 
+        alpha = .75,
+        main= 'Before')
+
+
+boxplot(logcpm_after, 
+        xlab = 'samples', 
+        col = group_colors, 
+        main = 'After')
+title("TMM Normalization", line = -1, outer = TRUE)
+
+```
+
+```{r}
+
+#write.csv(cpm(y2$counts), 'CPM_Damiano_noA1.csv')
+
+```
+
+## Vizualization of normalization
+
+```{r}
+data.frame(Sample = colnames(y2), 
+           Norm_Factor = y2$samples$norm.factors-1) %>%
+  ggplot(., aes(x = Sample, y = Norm_Factor)) +
+  geom_bar(stat = "identity", fill = group_colors, alpha = .75) +
+    #coord_cartesian(ylim = c(min(y2$samples$norm.factors), max(y2$samples$norm.factors)))+
+
+  # Add labels and a title
+  labs(
+    x = "Sample",
+    y = "Scaling",
+    title = "Visual representation of scaling factors"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1))
+
+
+```
+
+```{r}
+
+data.frame(Normalization_Factor = y2$samples$norm.factors,
+           row.names = colnames(y))
+
+# plot
+data.frame(Normalization_Factor = y2$samples$norm.factors,
+           row.names = colnames(y2)) %>%
+  ggplot(data = ., aes(x = rownames(.), y = Normalization_Factor)) + 
+  geom_bar(colour = "black",
+           fill = group_colors,
+           alpha = .75,
+           stat = 'identity') + theme_minimal()
+```
+
+MultiDimensional Scaling plot
+
+```{r}
+plotMDS(y2, 
+        labels = group, 
+        col = group_colors,
+        main = "MDS - expression profile distance among genotypes")
+
+plotMDS(y2, 
+        labels = colnames(y2), 
+        col = group_colors,
+        main = "MDS - expression profile distance among genotypes")
+```
+
+# 
+
+# Dispesion and BCV
+
+```{r}
+
+y2 <- estimateDisp(y2,design, robust = F) 
+plotBCV(y2)
+
+```
+
+# Compare groups:
+
+### Classic approach: Exact Test - less powerful
+
+### \_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_\_
+
+## GLM & Quasi-likelyhood F-test
+
+When you specify a contrast "A vs B", the contrast coefficients are set as
+
+### **-1 \* condition_A + 1 \* condition_B**
+
+Positive logFC indicates that the gene is upregulated in condition B compared to condition A. Conversely, a negative logFC indicates upregulation in condition A compared to condition B
+
+(or downregulated in condition B relative to condition A)
+
+## 
+
+### Constrasts
+
+```{r}
+# first define contrasts
+
+my_constrasts <- makeContrasts(WT_eel = eel-WT,
+                              WT_areb3 = areb3_1-WT,
+                              WT_double = eel.areb3_1-WT,
+                              areb3_eel= eel-areb3_1,
+                              areb3_double = eel.areb3_1-areb3_1,
+                              eel_double = eel.areb3_1-eel,
+                              levels = design) # adjust for intercept
+
+data.frame(my_constrasts)
+```
+
+# Model fitting
+
+-   glm for negative binomial
+
+```{r}
+fit_nointercept <- glmQLFit(y2,design, robust = T, legacy = F)
+plotQLDisp(fit_nointercept)
+```
+
+# Pairwise comparisons
+
+```{r}
+
+# WT vs areb3_1
+qlf_wtareb <- glmQLFTest(fit_nointercept, 
+                         contrast=my_constrasts[,"WT_areb3"])
+results_wtareb_unfiltered <- topTags(qlf_wtareb,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_wtareb, p.value=0.05))
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_wtareb, p.value=0.05))[1],
+                     summary(decideTests(qlf_wtareb, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "areb3_1 vs WT"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_wtareb
+
+
+
+# wt vs eel
+qlf_wteel <- glmQLFTest(fit_nointercept, 
+                        contrast=my_constrasts[,"WT_eel"])
+results_wteel_unfiltered <- topTags(qlf_wteel,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_wteel, p.value=0.05))
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_wteel, p.value=0.05))[1],
+                     summary(decideTests(qlf_wteel, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "eel vs WT"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_wteel
+
+
+
+
+
+qlf_wtdouble <-glmQLFTest(fit_nointercept,
+                          contrast=my_constrasts[,"WT_double"])
+results_wtdouble_unfiltered <- topTags(qlf_wtdouble,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_wtdouble, p.value=0.05))
+
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_wtdouble, p.value=0.05))[1],
+                     summary(decideTests(qlf_wtdouble, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "Double mutant vs WT"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_wtdouble
+
+
+
+
+
+
+qlf_arebeel <- glmQLFTest(fit_nointercept,
+                          contrast=my_constrasts[,"areb3_eel"])
+results_arebeel_unfiltered <- topTags(qlf_arebeel,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_arebeel, p.value=0.05))
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_arebeel, p.value=0.05))[1],
+                     summary(decideTests(qlf_arebeel, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "eel vs areb3_1"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_arebeel
+
+
+
+
+
+qlf_arebdouble <- glmQLFTest(fit_nointercept, 
+                             contrast=my_constrasts[,"areb3_double"])
+results_arebdouble_unfiltered <- topTags(qlf_arebdouble,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_arebdouble, p.value=0.05))
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_arebdouble, p.value=0.05))[1],
+                     summary(decideTests(qlf_arebdouble, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "Double mutant vs areb3_1"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_arebdouble
+
+
+
+
+
+qlf_eeldouble <- glmQLFTest(fit_nointercept, 
+                            contrast=my_constrasts[,"eel_double"])
+results_eeldouble_unfiltered <- topTags(qlf_eeldouble,
+        n = Inf,
+        adjust.method = "BH", 
+        sort.by = "PValue", 
+        p.value = 1)
+summary(decideTests(qlf_eeldouble, p.value=0.05))
+data.frame(Regulation = c("Down", "Up"), 
+           Genes = c(summary(decideTests(qlf_eeldouble, p.value=0.05))[1],
+                     summary(decideTests(qlf_eeldouble, p.value=0.05))[3])) %>%
+  ggplot(., aes(x = Regulation, y = Genes)) +
+  geom_bar(stat = "identity", fill = c("#114155", "#3b97b6")) +
+  labs(
+    x = "Regulation",
+    title = "Significant DE genes",
+    subtitle = "Double mutant vs eel"
+  )+
+  theme_minimal()+
+    theme(axis.text.x = element_text(angle = 0, 
+                                   hjust = .8, 
+                                   vjust = 1)) -> plot_eeldouble
+
+
+
+# test all  6 contrasts combinations
+
+#plot_wtareb+plot_wteel+plot_wtdouble
+#plot_arebeel+plot_arebdouble+plot_eeldouble
+
+#plot_wtareb+plot_wteel+plot_wtdouble+ plot_arebeel+plot_arebdouble+plot_eeldouble
+plot_wtareb
+plot_wteel
+plot_wtdouble
+plot_arebeel
+plot_arebdouble
+plot_eeldouble
+```
+
+# 
+
+# Function that filters the topTag genes
+
+from the results of topTags, this function selects genes that have significant and impactant DE:
+
+-   p.value (adjusted) \< .1
+
+-   significant expression
+
+```{r}
+
+extract_genes <- function(topTags_result,FDR_ = 0.05, logfc_ = 1  ) {
+  
+  topTags_result <- data.frame(topTags_result)
+  
+  topTags_result <- topTags_result[which((topTags_result$logFC > logfc_|     
+                                          topTags_result$logFC < -logfc_ ) & 
+                                          topTags_result$FDR < FDR_ & 
+                                          topTags_result$logCPM > 0),]
+  
+  return(topTags_result)
+
+  
+}
+
+results_wtareb <- extract_genes(results_wtareb_unfiltered)
+
+results_wteel <- extract_genes(results_wteel_unfiltered)
+
+results_wtdouble <- extract_genes(results_wtdouble_unfiltered)
+
+results_arebeel <-  extract_genes(results_arebeel_unfiltered)
+
+results_arebdouble <- extract_genes(results_arebdouble_unfiltered)
+
+results_eeldouble <- extract_genes(results_eeldouble_unfiltered)
+
+# _unfiltered for volcanoes
+```
+
+by intersecting results from previus cell we can get list of most varying genes for each genotype/group
+
+```{r}
+# intersection
+top_wt <- intersect(rownames(results_wtareb), c(rownames(results_wteel), rownames(results_wtdouble)))
+top_areb <- intersect(rownames(results_wtareb), c(rownames(results_arebeel), rownames(results_arebdouble)))
+top_eel <- intersect(rownames(results_wteel), c(rownames(results_arebeel), rownames(results_eeldouble)))
+top_double <- intersect(rownames(results_wtdouble), c(rownames(results_eeldouble), rownames(results_arebdouble)))
+
+```
+
+### Marker genes for wild type
+
+```{r}
+# expression of a gene across samples
+markers_wt <- t(cpm(y2[which(rownames(y2) %in% top_wt),],log = T)) %>% data.frame(.)
+```
+
+```{r}
+#library(ComplexHeatmap)
+Heatmap(t(markers_wt))
+```
+
+### Marker genes for areb
+
+```{r}
+
+markers_areb <- t(cpm(y2[which(rownames(y2) %in% top_areb),],log = T)) %>% data.frame(.)
+Heatmap(t(markers_areb))
+
+```
+
+### Marker genes for eel
+
+```{r}
+
+markers_eel <- t(cpm(y2[which(rownames(y2) %in% top_eel),],log = T)) %>% data.frame(.)
+Heatmap(t(markers_eel))
+
+```
+
+### Marker genes for double mutant
+
+```{r}
+
+markers_double <- t(cpm(y2[which(rownames(y2) %in% top_double),],log = T)) %>% data.frame(.)
+Heatmap(t(markers_double))
+
+# we have only 1 gene even being poorly restrictive
+```
+
+### 
+
+# MD ggplot2
+
+### Plot function
+
+```{r}
+###########################################à
+
+plot_MD <- function(Toptags_results, FDR_ = .05, logFC_ = 1){
+  Toptags_results <- Toptags_results$table
+  
+  regulation <- ifelse(Toptags_results$FDR < FDR_ & Toptags_results$logFC > logFC_, "UP", 
+                ifelse(Toptags_results$FDR < FDR_ & Toptags_results$logFC < -logFC_, "DOWN", 
+                "none"))
+  
+  labelled_genes <-  subset(Toptags_results, abs(Toptags_results$logFC) > logFC_ & Toptags_results$FDR < FDR_)
+
+  data.frame(Toptags_results) %>%
+  ggplot(., 
+       aes(x = logCPM, 
+           y=logFC,
+           col=regulation,
+           size = ifelse(regulation %in% c("UP", "DOWN"), 2, 1)), 
+           alpha=.75) + 
+  geom_point() + 
+  scale_colour_manual(values=c("blue", "black","red"))+
+    #scale_size_continuous("FDR") +
+     #   scale_size_continuous("logFC")+
+
+  geom_text_repel(data = labelled_genes,
+            aes(label = rownames(labelled_genes)),
+            col = "black", 
+            size = 3.5, 
+            nudge_x = 0, 
+            nudge_y = ifelse(regulation == "UP", 2, 
+                             ifelse(regulation == "DOWN", -2, 0)), 
+            #max.overlaps = Inf,
+            force = 1) +
+    theme_minimal()+
+    
+  guides(size = "none")
+  
+  
+}
+```
+
+## MD for mutants vs WT
+
+```{r}
+
+plot_MD(results_wtareb_unfiltered) + 
+  labs(title = "Mean-difference plot", subtitle = "areb vs WT")
+
+plot_MD(results_wteel_unfiltered) +
+  labs(title = "Mean-difference plot", subtitle = "eel vs WT")
+
+plot_MD(results_wtdouble_unfiltered) +
+  labs(title = "Mean-difference plot", subtitle = "Double mutant vs WT")
+
+
+
+```
+
+## MD for mutants vs mutants
+
+```{r}
+
+plot_MD(results_arebeel_unfiltered,FDR_ = 0.1, logFC_ = .5)+ 
+  labs(title = "Mean-difference plot", subtitle = "eel vs areb3")
+
+plot_MD(results_arebdouble_unfiltered,FDR_ = 0.1, logFC_ = .5)+ 
+  labs(title = "Mean-difference plot", subtitle = "Double mutant vs areb3")
+
+plot_MD(results_eeldouble_unfiltered,FDR_ = 0.1, logFC_ = .5) + 
+  labs(title = "Mean-difference plot", subtitle = "Double mutant vs eel")
+
+
+```
+
+# Contrasts
+
+#### Wild Type vs areb3
+
+```{r}
+
+results_wtareb
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_wtareb)),c(1:2,6:8)],
+      log = T)) %>% t() %>% data.frame(.) %>%
+Heatmap(.)
+```
+
+#### Wild Type vs eel
+
+```{r}
+results_wteel
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_wteel)),c(1:5)],
+      log = T)) %>% t() %>% data.frame(.) %>%
+Heatmap(.)
+```
+
+#### Wild type vs double mutant
+
+```{r}
+
+results_wtdouble
+
+t(cpm(y2[which(rownames(y2) %in% rownames(results_wtdouble)),c(1:2,9:11)],
+      log = T)) %>% t() %>% data.frame(.) %>%
+Heatmap(.)
+```
+
+```{r}
+
+rownames(results_wtareb) %>% data.frame()
+rownames(results_wteel) %>% data.frame()
+rownames(results_wtdouble) %>% data.frame()
+
+
+results_wtareb[order(abs(results_wtareb$logFC), decreasing = T),]
+results_wteel[order(abs(results_wteel$logFC), decreasing = T),]
+results_wtdouble[order(abs(results_wtdouble$logFC), decreasing = T),]
+
+
+```
+
+overlap with tfs
+
+```{r}
+
+read_table('Ath_TF_list.txt') -> tf_list
+
+table(unlist(tf_list['Gene_ID']) %in% rownames(y2$counts)
+) 
+# so we count 1886 tfs out of 2296
+
+
+```
+
+```{r}
+# differentially expressed TFs
+results_wtareb[which(rownames(results_wtareb) %in% 
+                       unlist(tf_list['Gene_ID'])),] -> areb3_tfs
+areb3_tfs
+
+results_wteel[which(rownames(results_wteel) %in% 
+                       unlist(tf_list['Gene_ID'])),]
+
+results_wtdouble[which(rownames(results_wtdouble) %in% 
+                       unlist(tf_list['Gene_ID'])),]
+```
+
+```{r}
+gost(areb3_tfs$TAIR_ID,
+     organism = 'athaliana',
+     multi_query = F, 
+     evcodes = T,
+     highlight = T,
+     exclude_iea = T,
+     custom_bg = background_genes) -> areb3_tfs_enrich
+
+plot_from_gost(areb3_tfs_enrich, annDB = 'GO:BP', top_res = 20, highlighted_only = T) 
+plot_from_gost(areb3_tfs_enrich, annDB = 'GO:BP', top_res = 20)
+
+plot_from_gost(areb3_tfs_enrich, annDB = 'GO:MF', top_res = 20, highlighted_only = T) 
+plot_from_gost(areb3_tfs_enrich, annDB = 'GO:MF', top_res = 20)  
+#ggsave('mfplotD.png', path = filespath )
+
+plot_from_gost(areb3_tfs_enrich, annDB = 'GO:CC', top_res = 20, highlighted_only = T) 
+#plot_from_gost(areb3_tfs_enrich, annDB = 'GO:CC', top_res = 20)
+
+plot_from_gost(areb3_tfs_enrich, annDB = 'WP', top_res = 20) 
+#plot_from_gost(areb3_tfs_enrich, annDB = 'KEGG', top_res = 20) 
+```
+
+```{r}
+# group A bzips expression profile
+
+a_bZips <- list("AT2G17770","AT4G35900","AT1G03970",
+                "AT5G44080","AT2G41070","AT3G56850",
+                "AT2G36270","AT3G44460","AT5G42910",
+                "AT1G45249","AT4G34000","AT1G49720","AT3G19290")
+
+
+s_bZips <- list("AT5G60830","AT5G08141","AT1G68880","AT3G30530",
+                "AT5G38800","AT5G15830","AT1G13600","AT2G04038",
+                "AT3G62420","AT2G18160","AT1G75390","AT4G34590",
+                "AT5G49450","AT1G59530","AT3G49760","AT2G22850","AT4G37730")
+
+c_bZips <- list("AT3G54620","AT4G02640","AT5G28770","AT5G24800")
+
+d_bZips <- list("AT1G22070","AT1G77920","AT5G65210","AT5G10030",
+                "AT1G08320","AT5G06839","AT1G68640","AT5G06960",
+                "AT5G06950","AT3G12250")
+
+f_bZips <- list("AT4G35040", "AT2G16770","AT3G51960")
+
+i_bZips <- list("AT1G06850","AT2G40620","AT1G43700","AT1G06070",
+                "AT2G31370","AT2G21230","AT4G38900","AT2G24340",
+                "AT2G21235","AT2G12900","AT2G13150","AT2G12940")
+
+
+e_bZips <- list("AT2G42380","AT3G58120","AT5G04840",
+                "AT1G35490","AT1G58110","AT4G06598")
+
+
+b_bZips <- list("AT3G56660","AT2G40950","AT3G10800")
+
+
+jhkm_bZips <- list("AT1G42990","AT5G11260","AT3G17609","AT1G19490","AT5G07160")
+
+g_bZips <- list("AT2G46270","AT4G01120","AT4G36730","AT1G32150","AT2G35530")
+
+```
+
+```{r}
+which(a_bZips %in% rownames(y2)) # missing 8 and 9 = AT3G44460, AT5G42910
+cpm(y2$counts[which(rownames(y2) == "AT3G56850"), ])
+
+
+
+cpm(y2$counts[which(rownames(y2) %in% a_bZips), ]) %>% data.frame() -> a_bZips_expression
+
+results_wtareb[which(rownames(results_wtareb) %in% 
+                       rownames(a_bZips_expression)),]
+
+results_wteel[which(rownames(results_wteel) %in% 
+                       rownames(a_bZips_expression)),]
+
+results_wtdouble[which(rownames(results_wtdouble) %in% 
+                       rownames(a_bZips_expression)),]
+
+```
+
+```{r}
+#plot per genotye
+
+#colnames(a_bZips_expression) <- as.factor(colnames(a_bZips_expression))
+Heatmap(a_bZips_expression, column_order = sort(colnames(a_bZips_expression)))
+```
+
+```{r}
+
+stack(a_bZips_expression) %>% 
+  data.frame(Gene = rep(rownames(a_bZips_expression), length(a_bZips_expression[1,])),
+             Genotype = sort(rep(group, 11),decreasing = F)) %>%
+  rename(CPM = values, Sample = ind) -> stacked_abzip_express
+
+
+
+ggplot(stacked_abzip_express, aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+
+
+```
+
+```{r}
+
+stacked_abzip_express[stacked_abzip_express$Gene %in% 
+                        c("AT1G49720","AT1G45249"),]%>% 
+  ggplot(., aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+
+
+
+stacked_abzip_express[stacked_abzip_express$Gene %in% 
+                        c("AT4G34000", "AT3G19290"),]%>% 
+  ggplot(., aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+
+
+
+
+stacked_abzip_express[stacked_abzip_express$Gene %in% 
+                        c("AT1G49720","AT1G45249","AT4G34000", "AT3G19290"),]%>% 
+  ggplot(., aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_grid(~Gene)
+
+
+
+
+# fd, fdp, 
+stacked_abzip_express[stacked_abzip_express$Gene %in% 
+                        c("AT4G35900", "AT2G17770",),]%>% 
+  ggplot(., aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+
+```
+
+```{r}
+
+# let's make some heatmaps for every group 
+
+
+# A
+cpm(y2$counts[which(rownames(y2) %in% a_bZips), ]) %>% data.frame() -> expr_A
+y2[y2$genes$TAIR_ID %in% rownames(expr_A),]$genes$Name -> names_A
+rownames(expr_A) <- names_A
+expr_A %>% as.matrix() %>% Heatmap(., column_title = 'Group A expression')
+
+# B
+cpm(y2$counts[which(rownames(y2) %in% b_bZips), ]) %>% data.frame() -> expr_B
+y2[y2$genes$TAIR_ID %in% rownames(expr_B),]$genes$Name -> names_B
+rownames(expr_B) <- names_B
+expr_B %>% as.matrix() %>% Heatmap(., column_title = 'Group B expression')
+
+
+# C 
+cpm(y2$counts[which(rownames(y2) %in% c_bZips), ]) %>% data.frame() -> expr_C
+y2[y2$genes$TAIR_ID %in% rownames(expr_C),]$genes$Name -> names_C
+rownames(expr_C) <- names_C
+expr_C %>% as.matrix() %>% Heatmap(., column_title = 'Group C expression')
+
+
+# D 
+cpm(y2$counts[which(rownames(y2) %in% d_bZips), ]) %>% data.frame() -> expr_D
+y2[y2$genes$TAIR_ID %in% rownames(expr_D),]$genes$Name -> names_D
+rownames(expr_D) <- names_D
+expr_D %>% as.matrix() %>% Heatmap(., column_title = 'Group D expression')
+
+
+# E 
+cpm(y2$counts[which(rownames(y2) %in% e_bZips), ]) %>% data.frame() -> expr_E
+y2[y2$genes$TAIR_ID %in% rownames(expr_E),]$genes$Name -> names_E
+rownames(expr_E) <- names_E
+expr_E %>% as.matrix() %>% Heatmap(., column_title = 'Group E expression')
+
+
+# F
+cpm(y2$counts[which(rownames(y2) %in% f_bZips), ]) %>% data.frame() -> expr_F
+y2[y2$genes$TAIR_ID %in% rownames(expr_F),]$genes$Name -> names_F
+rownames(expr_F) <- names_F
+expr_F %>% as.matrix() %>% Heatmap(., column_title = 'Group F expression')
+
+
+# G
+cpm(y2$counts[which(rownames(y2) %in% g_bZips), ]) %>% data.frame() -> expr_G
+y2[y2$genes$TAIR_ID %in% rownames(expr_G),]$genes$Name -> names_G
+rownames(expr_G) <- names_G
+expr_G %>% as.matrix() %>% Heatmap(., column_title = 'Group G expression')
+
+
+# I
+cpm(y2$counts[which(rownames(y2) %in% i_bZips), ]) %>% data.frame() -> expr_I
+y2[y2$genes$TAIR_ID %in% rownames(expr_I),]$genes$Name -> names_I
+rownames(expr_I) <- names_I
+expr_I %>% as.matrix() %>% Heatmap(., column_title = 'Group I expression')
+
+
+# JHKM
+cpm(y2$counts[which(rownames(y2) %in% jhkm_bZips), ]) %>% data.frame() -> expr_JHKM
+y2[y2$genes$TAIR_ID %in% rownames(expr_JHKM),]$genes$Name -> names_JHKM
+rownames(expr_JHKM) <- names_JHKM
+expr_JHKM %>% as.matrix() %>% Heatmap(., column_title = 'Groups J/H/K/M expression')
+
+
+# S
+cpm(y2$counts[which(rownames(y2) %in% s_bZips), ]) %>% data.frame() -> expr_S
+y2[y2$genes$TAIR_ID %in% rownames(expr_S),]$genes$Name -> names_S
+rownames(expr_S) <- names_S
+expr_S %>% as.matrix() %>% Heatmap(., column_title = 'Group S expression')
+
+
+
+
+
+
+
+
+```
+
+```{r}
+
+
+```
+
+```{r}
+
+setwd("C:/Users/Simo/genomics/damianoRNAseq-20042023/meta_output_17d/meta_assembly_genomeref")
+read.csv('FINAL_COUNT_TABLE_MAIDA.csv') -> y_maida
+rownames(y_maida) <-  y_maida$X
+y_maida <- y_maida[,-1]
+maidagroup <- factor(c("WT", "WT", "WT",
+                "fd", "fd", "fd",
+                "fdp","fdp","fdp")) %>% relevel(., ref = "WT")
+
+y_maida[which(rownames(y_maida) %in% a_bZips), ] %>% data.frame() -> a_bZips_expression_m
+
+stack(a_bZips_expression_m) %>% 
+  data.frame(Gene = rep(rownames(a_bZips_expression_m), length(a_bZips_expression_m[1,])),
+             Genotype = sort(rep(maidagroup, 11),decreasing = F)) %>%
+  rename(CPM = values, Sample = ind) -> stacked_abzip_express_m
+
+ggplot(stacked_abzip_express_m, aes(x = Genotype, y = CPM, fill = Genotype))+
+  geom_boxplot()+
+  scale_fill_viridis_d()+
+  theme_minimal() + facet_wrap(~Gene)
+
+```
+
+```{r}
+# flowering time genes
+library(readxl)
+
+arabidopsis_tfs <- read_tsv("../Ath_TF_list.txt")
+arabidopsis_tfs$Family %>% unique()
+
+flowering_time_genes <- read_xls("../flowering_time_genes.xls", 
+         sheet = 1, skip = 4)
+flowering_time_genes$`Flowering pathway` %>% unique
+
+
+getwd()
+```
+
+# ENRICHMENT
+
+```{r}
+# enrichment
+plot_from_gost <- function(gost_result, 
+                           annDB = c("GO:BP","GO:CC","GO:MF","KEGG","WP"),
+                           #curated_only = F,
+                           highlighted_only = F,
+                           top_res = 10) {
+  
+  gost_result <- gost_result$result[gost_result$result$significant == T,]
+  gost_result <- gost_result[gost_result$source %in% annDB,]
+  
+  if (highlighted_only == T) {
+    gost_result <- gost_result[gost_result$highlighted == TRUE,]
+  }
+  
+  gost_result <- gost_result %>% 
+    group_by(query) %>%
+    arrange(desc(intersection_size)) %>% 
+    slice_head(n = top_res) %>% 
+    ungroup()
+
+gost_result$term_name <- factor(gost_result$term_name,
+                                levels = unique(gost_result$term_name))
+
+ggplot(gost_result, aes(x = intersection_size, 
+                           y = term_name, 
+                           fill = -log10(p_value) ))+
+  scale_fill_viridis(option = 'mako', 
+                     direction = -1,
+                     #limits = c(0,50)
+                     )+
+  geom_bar(stat = 'identity') + 
+  theme_minimal()+
+  ggplot2::facet_grid(~query)+ labs(title = annDB)
+}
+
+```
+
+```{r}
+
+
+marker_results <- list(WT_Markers = top_wt,
+                       areb3_Markers = top_areb,
+                       eel_Markers = top_eel,
+                       dbm_Markers = top_double)
+
+de_results <- list(de_wtareb = rownames(results_wtareb),
+                   de_wteel = rownames(results_wteel),
+                   de_wtdbl = rownames(results_wtdouble))
+background_genes <- rownames(y2$counts)
+#data.frame(background_genes) %>% 
+ # write_csv(., 'damianobg_p01.csv')
+
+#data.frame(de_results[1])
+#data.frame(de_results[2])
+#data.frame(de_results[3])
+
+
+
+```
+
+```{r}
+
+
+# enrich degs with custm bg
+gost(de_results,
+     organism = 'athaliana',
+     multi_query = F, 
+     evcodes = T,
+     highlight = T,
+     exclude_iea = T,
+     custom_bg = background_genes) -> de_enriched_1
+
+```
+
+```{r}
+de_enriched_1$result[de_enriched_1$result$query == 'de_wteel',]
+de_enriched_1$result[de_enriched_1$result$query == 'de_wtdbl',]
+de_enriched_1$result[de_enriched_1$result$query == 'de_wtareb',]
+```
+
+```{r}
+
+plot_from_gost(de_enriched_1, annDB = 'GO:BP', top_res = 20, highlighted_only = T) 
+plot_from_gost(de_enriched_1, annDB = 'GO:BP', top_res = 20)
+
+plot_from_gost(de_enriched_1, annDB = 'GO:MF', top_res = 20, highlighted_only = T) 
+plot_from_gost(de_enriched_1, annDB = 'GO:MF', top_res = 20)  
+#ggsave('mfplotD.png', path = filespath )
+
+plot_from_gost(de_enriched_1, annDB = 'GO:CC', top_res = 20, highlighted_only = T) 
+plot_from_gost(de_enriched_1, annDB = 'GO:CC', top_res = 20)
+
+plot_from_gost(de_enriched_1, annDB = 'WP', top_res = 20) 
+plot_from_gost(de_enriched_1, annDB = 'KEGG', top_res = 20) 
+
+```
+
+```{r}
+# DEGs with no BG
+
+gost(de_results,
+     organism = 'athaliana',
+     multi_query = F, 
+     evcodes = T,
+     highlight = T,
+     exclude_iea = T) -> de_enriched_nobg
+
+```
+
+```{r}
+
+
+plot_from_gost(de_enriched_nobg, annDB = 'GO:BP', top_res = 20, highlighted_only = T) 
+plot_from_gost(de_enriched_nobg, annDB = 'GO:BP', top_res = 30)
+
+plot_from_gost(de_enriched_1, annDB = 'GO:MF', top_res = 20, 
+               highlighted_only = T)
+
+plot_from_gost(de_enriched_nobg, annDB = 'GO:MF', top_res = 20)  
+#ggsave('mfplotD.png', path = filespath )
+
+plot_from_gost(de_enriched_1, annDB = 'GO:CC', top_res = 20, 
+               highlighted_only = T) 
+
+plot_from_gost(de_enriched_nobg, annDB = 'GO:CC', top_res = 20)
+
+plot_from_gost(de_enriched_nobg, annDB = 'WP', top_res = 20) 
+plot_from_gost(de_enriched_nobg, annDB = 'KEGG', top_res = 20) 
+
+```
+
+```{r}
+# markers 
+
+gost(marker_results,
+     organism = 'athaliana',
+     multi_query = F, 
+     evcodes = T,
+     highlight = T,
+     exclude_iea = T,
+     custom_bg = background_genes) -> markers_enriched
+```
+
+```{r}
+
+
+plot_from_gost(markers_enriched, annDB = 'GO:BP', top_res = 20, highlighted_only = T) 
+plot_from_gost(markers_enriched, annDB = 'GO:BP', top_res = 20)
+
+plot_from_gost(markers_enriched, annDB = 'GO:MF', top_res = 20, highlighted_only = T) 
+plot_from_gost(markers_enriched, annDB = 'GO:MF', top_res = 20)  
+#ggsave('mfplotD.png', path = filespath )
+
+plot_from_gost(markers_enriched, annDB = 'GO:CC', top_res = 20, highlighted_only = T) 
+plot_from_gost(markers_enriched, annDB = 'GO:CC', top_res = 20)
+
+plot_from_gost(markers_enriched, annDB = 'WP', top_res = 20) 
+#plot_from_gost(markers_enriched, annDB = 'KEGG', top_res = 20) 
+```
+
+a bit of exploration
+
+```{r}
+# sesequiterpene genes - related to flowering 
+table(rownames(y2) == 'AT5G23960') #nope
+table(rownames(y2) == 'AT5G44630')
+
+cpm(y2$counts[which(rownames(y2) == "AT5G44630"), ])  %>% 
+  data.frame(Counts = ., Genotype = y2$samples$group) %>% 
+  ggboxplot(., 
+          x = "Genotype", 
+          y = "Counts",outlier.shape = NA,
+          width = 0.5,
+          title="AT5G44630", fill = "Genotype", 
+          palette = group_colors[c(1,4,7,10)])# -> boxtopwt_1
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+# COMPARE WITH MAIDA 17 DAYS
+
+```{r}
+#| output: false
+
+read_csv('DE_FD3vsWT.csv') -> results_wtfd3
+#read_csv('enrichDE_FD3vsWT.csv') -> enriched_results_wtfd3
+
+read_csv('DE_FDPvsWT.csv') -> results_wtfdp
+#read_csv('enrichDE_FD3vsWT.csv') -> enriched_results_wtfdp
+
+read_csv('DE_FD3vsWT.csv') -> results_fd3fdp
+#read_csv('enrichDE_FD3vsFDP.csv') -> enriched_results_fd3fdp
+```
+
+```{r}
+maida_de <- list(de_wtfd3 = (results_wtfd3 %>% unlist %>% unname),
+                 de_wtfdp = (results_wtfdp %>% unlist %>% unname),
+                 de_fd3fdp = (results_fd3fdp%>% unlist %>% unname))
+
+
+maida_de_enrich <- list(enrich_wtfd3 = (enriched_results_wtfd3[,4]%>% 
+                                          unlist %>% unname),
+                        enrich_wtfdp =( enriched_results_wtfdp[,4]%>% 
+                                          unlist %>% unname),
+                        enrich_fd3fdp =( enriched_results_fd3fdp[,4]%>% 
+                                           unlist %>% unname))
+```
+
+```{r}
+
+# 
+
+gom_DE <- newGOM(de_results, 
+                  maida_de, 
+                  dim(y2$counts)[1])
+
+#drawHeatmap(gom.obj)
+
+overlapDE_odds <- getMatrix(gom_DE, name = 'odds.ratio')
+overlapDE_pval <- getMatrix(gom_DE, name = 'pval')
+
+ComplexHeatmap::Heatmap(t(overlapDE_odds),
+                        column_order = factor(1:3),
+                        column_title = 'DEG Intersection',
+                #col = rev(viridis(5, begin = 0, end = 1, option = 'magma')),
+                        col = colorRamp2(c(0,20), c('#dfdfdf', 'darkgreen')),
+                        cell_fun = function(j, i, x, y, width, height, fill) {
+                          if(overlapDE_pval[j, i] < .05)
+                             grid.text('*',
+                                       x, y, 
+                                       gp = gpar(fontsize = 10))
+                          
+                        }
+                      )
+
+
+```
+
+```{r}
+
+library(ggvenn)
+# degs
+
+results_wtareb[results_wtareb$logFC>0,] -> up_areb
+results_wteel[results_wteel$logFC >0,] -> up_eel
+results_wtdouble[results_wtdouble$logFC >0,] -> up_double
+
+rbind(results_wtareb[which(results_wtareb$logFC < 0),], 
+      results_wteel[which(results_wteel$logFC < 0),],
+      results_wtdouble[which(results_wtdouble$logFC < 0),]) -> up_wt
+
+
+ggvenn(data = list(UP_areb = up_areb[,1],
+                   UP_eel = up_eel[,1],
+                   UP_double = up_double[,1],
+                   UP_WT = up_wt[,1]
+                   ), 
+      #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+      stroke_size = 0.5, set_name_size = 4, show_percentage = F
+      ) + ggtitle('Common upregulated DEGs between Damiano\'s')
+
+ggvenn(data = list(DE_areb = results_wtareb[,1],
+                   DE_eel = results_wteel[,1],
+                   DE_double = results_wtdouble[,1]), 
+      #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+      stroke_size = 0.5, set_name_size = 4, show_percentage = F
+      ) + ggtitle('Common DEGs (Damiano\'s mutants)')
+
+
+
+```
+
+```{r}
+ggvenn(data = list(areb3 = results_wtareb[,1],
+                   eel = results_wteel[,1],
+                   fd = maida_de$de_wtfd3,
+                   fdp = maida_de$de_wtfdp), 
+      #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+     stroke_size = .7,set_name_size = 4, show_percentage = F
+      ) + ggtitle('DEGs similarity between mutants (Damiano and Maida)')
+```
+
+```{r}
+
+Reduce(intersect, list(areb3 = results_wtareb[,1],
+                       eel = results_wteel[,1],
+                       fd = maida_de$de_wtfd3,
+                       fdp = maida_de$de_wtfdp))
+
+
+Reduce(intersect, list(results_wtareb[,1],
+                       results_wteel[,1])) %>% data.frame
+
+Reduce(intersect, list(results_wtareb[,1],
+                       maida_de$de_wtfd3)) %>% data.frame
+
+
+Reduce(intersect, list(results_wtareb[,1],
+                       maida_de$de_wtfdp)) %>% data.frame
+
+
+Reduce(intersect, list(results_wteel[,1],
+                       maida_de$de_wtfd3)) %>% data.frame
+
+
+
+Reduce(intersect, list(results_wteel[,1],
+                       maida_de$de_wtfdp)) %>% data.frame
+
+
+```
+
+```{r}
+# with DEseq
+
+library(readxl)
+
+read_excel("diffExp_deseqVSedger.xlsx", sheet = 1) -> deseq_wtareb
+read_excel("diffExp_deseqVSedger.xlsx", sheet = 3) -> deseq_wteel
+read_excel("diffExp_deseqVSedger.xlsx", sheet = 2) -> deseq_wtdbl
+```
+
+```{r}
+deseq_wtareb[abs(deseq_wtareb$deseq2_log2FoldChange) >1,] # different lfc subsetting
+
+```
+
+```{r}
+
+ggvenn(data = list(areb3_edger = results_wtareb[,1],
+                   areb3_deseq = deseq_wtareb[,1] %>% unlist %>% unname, 
+                   eel_edger = results_wteel[,1],
+                   eel_deseq = deseq_wteel[,1]  %>% unlist %>% unname ), 
+      #fill_color = c("#0073C2FF", "#EFC000FF", "#CD534CFF"),
+     stroke_size = .7,set_name_size = 4, show_percentage = F
+      ) + ggtitle('DEGs similarity between EdgeR and DESeq2')
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+table(results_wtareb$TAIR_ID %in% results_wteel$TAIR_ID)
+results_wtareb[which(results_wtareb$TAIR_ID %in% results_wteel$TAIR_ID),-2]
+results_wteel[which(results_wteel$TAIR_ID %in% results_wtdouble$TAIR_ID),-2]
+
+cpm(y2$counts) %>% 
+  data.frame %>%
+  .[rownames(.) %in% c("AT3G56850", "AT2G41070"),] %>%
+  stack(.) %>%
+  rename(CPM = values, 
+         Sample = ind) %>% 
+  mutate(., Genotype = rep(group, each = 2)) %>%
+  mutate(., Gene = rep(c("AT2G41070", "AT3G56850"), 11)) %>%
+  ggplot(., aes(x = Gene, y = CPM, fill = Genotype)) + 
+  geom_boxplot() +
+  facet_grid(~Genotype) + theme_bw()
+
+
+
+```
+
+## 
+
+# 

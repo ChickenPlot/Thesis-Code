@@ -1,0 +1,44 @@
+## Align with MAFFT and trim
+
+conda activate phylo
+
+mafft --thread 4 --nuc --localpair --maxiterate 1000 ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.linear.fasta > ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.linear.aligned2.mft
+
+###  mafft --thread 4 --nuc --localpair --maxiterate 1000 EEL_1001_pseudogenome.fa > EEL_1001_pseudogenome_ALIGNED.mft
+
+
+
+trimal -in ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.linear.aligned2.mft -out ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.linear.trimmed2.mft -automated1 -fasta
+
+trimal -in EEL_1001_pseudogenome_ALIGNED.mft -out EEL_1001_pseudogenome_TRIMMED.mft -automated1 -fasta
+
+
+# linerize fasta
+
+sed -e 's/\(^>.*$\)/#\1#/' ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.fasta | tr -d "\r" | tr -d "\n" | sed -e 's/$/#/' | tr "#" "\n" | sed -e '/^$/d' | cat > ./fri-flc/data/accessionsPacBio/centromereStudy/Chr5/flc_intron1_pacbio_outgroup1001.linear.fasta
+
+
+sed -e 's/\(^>.*$\)/#\1#/' Lyrata_EEL.fa | tr -d "\r" | tr -d "\n" | sed -e 's/$/#/' | tr "#" "\n" | sed -e '/^$/d' | cat > Lyrata_EEL.fa
+seqkit seq -w 0 input.fa
+
+
+# to make network poppr
+imsn()
+
+
+
+
+# RUN IQTREE & ROOT TREES - let iqtree choose model (-m option not specified), and do not specify outgroupp (unrooted)
+
+iqtree -nt 4 -s EEL_1001_pseudogenome_TRIMMED.mft -bb 1000 -wbtl
+
+iqtree -nt 4 -s EEL_1001_pseudogenome_TRIMMED.mft -B 1000 -alrt 1000 -wbtl
+
+
+iqtree -nt 5 -s ./fri-flc/data/accessionsPacBio/centromereStudy/Chr4/fri_pacbio_outgroup1001.linear.trimmed.mft -bb 1000 -wbtl
+
+
+
+pxrr -t ./fri-flc/data/accessionsPacBio/centromereStudy/Chr4/fri_pacbio_outgroup1001.linear.trimmed.mft.contree -g Arabidopsis
+
+pxrr -t EEL_1001_pseudogenome_TRIMMED.mft.contree -g Arabidopsis -o EEL_phylotree.nwk

@@ -1,0 +1,75 @@
+## ACTIVATE CONDA ENV
+conda activate phylo
+
+## SET FILTERS BASED ON R OUTPUT in vcftools (frequencies) AND plink (LD)
+### FILTERING ### 
+vcftools --gzvcf ./vcf_file.vcf.gz --maf 0.05 --max-missing 0.75 --minQ 30 --min-meanDP 10 --max-meanDP 50 --minDP 2 --maxDP 40 --remove-filtered-all --remove-filtered-geno-all --recode --stdout | gzip -c > ./vcf_file_filtered.vcf.gz
+
+vcftools --gzvcf ./vcf_file_filtered.vcf.gz --plink --out ./vcf_file_filtered_plinked
+
+### ACTUAL LD COMPUTATION ####
+NEED TO TUNE THE 1000, 10, .8
+plink --noweb --file ./vcf_file_filtered_plinked --indep-pairwise 1000 10 0.8 --out ./vcf_file_filtered_plinkedprune
+
+
+# UNNECESSARY FILTERING
+plink --file ./vcf_file_filtered_plinked --extract ./vcf_file_filtered_plinkedprune.prune.in --make-bed --out ./vcf_file_filtered_pruned
+plink --bfile ./vcf_file_filtered_pruned --recode vcf --out ./vcf_file_filtered_pruned
+
+# COMPRESSION
+bgzip ./vcf_file_filtered_pruned.vcf
+
+#####################################################################################################
+#####################################################################################################
+#####################################################################################################
+######################################## CUSTOM #####################################################
+#####################################################################################################
+#####################################################################################################
+
+
+ VCFTOOLS FILTERING --> keep only maf
+
+vcftools --gzvcf 1001EEL_SNPs.vcf.gz --maf 0.05 --remove-filtered-all --remove-filtered-geno-all --recode --stdout | gzip -c > 1001EEL_SNPs_filtered.vcf.gz
+
+
+vcftools --gzvcf 1001EEL_SNPs_filtered.vcf.gz --plink --out 1001EEL_SNPs_filtered_plinked
+
+
+plink --noweb --file 1001EEL_SNPs_filtered_plinked --indep-pairwise 10kb 1 0.8 --out 1001EEL_SNPs_filtered_plinked_prune 
+#10kb 100/200/500 .7
+
+
+LDBlockShow -InVCF 1001EEL_SNPs.vcf.gz -OutPut 1001_EEL_LINKAGE -Region chr2:17128753-17133386 -InGFF TAIR10_GFF3_genes.gff
+
+
+LDBlockShow -InVCF 1001genomes_snp-short-indel_only_ACGTN.vcf -OutPut 1001_EEL_LINKAGE -Region chr2:17118753-17134386 -InGFF TAIR10_GFF3_genes.gff
+
+1001genomes_snp-short-indel_only_ACGTN.vcf
+
+# rational for the 3 values: 
+- small window: slow but accuracy 50 10 .1\.2
+-big window: non mi ispira moltissimo 30000 500 .1
+-following LD decay: 10000 200 .1-.2
+-another: 20000 500 .1
+
+########################################################################################################################################
+
+ulimit -n 10000
+
+vcftools --gzvcf 1001genomes_snp-short-indel_only_ACGTN.vcf.gz --maf 0.05 --remove-filtered-all --remove-filtered-geno-all --recode --stdout | gzip -c > 1001genomes_snps_filtered.vcf.gz
+
+vcftools --gzvcf 1001genomes_snps_filtered.vcf.gz --plink --out 1001genomes_snps_filtered_plinked
+
+HERE
+plink --noweb --file 1001genomes_snps_filtered_plinked --indep-pairwise 50 5 0.8 --out 1001genomes_snps_filtered_plinked_prune 
+
+#10kb 100/200/500 .7
+
+
+LDBlockShow -InVCF 1001EEL_SNPs.vcf.gz -OutPut 1001_EEL_LINKAGE -Region chr2:17128753-17133386 -InGFF TAIR10_GFF3_genes.gff
+
+
+LDBlockShow -InVCF 1001genomes_snp-short-indel_only_ACGTN.vcf -OutPut 1001_EEL_LINKAGE -Region chr2:XXXXX** -InGFF TAIR10_GFF3_genes.gff
+** EEL is at 17130821 - 17132370 bp, 
+
+
